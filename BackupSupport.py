@@ -23,28 +23,45 @@ def infoPrint(msg,doPrint) :
         print(f'INFO {msg}')
 
 ###############################################################################
-def loadOptions(currentCfg, optionsfile) :
+def saveDataAsJSONFile(dataStructure,path_to_json_file) :
+    try:
+        with open(path_to_json_file, "w") as wf:
+            json.dump(dataStructure, wf)
+    except Exception as e:
+        print(f'ERROR unable to save data to JSON file {path_to_json_file} - {e}')
+        exit(1)
+
+###############################################################################
+def loadParseJSONFile(path_to_json_file,printErrors) :
+    try:
+        with open(path_to_json_file) as jf:
+            try:
+                readInJSON = json.loads(jf.read())
+            except Exception as e:
+                infoPrint(f'Could not parse JSON from file {path_to_json_file}, {e}',printErrors)
+                return None
+    except Exception as e:
+        infoPrint(f'Could not read file {path_to_json_file}, {e}',printErrors)
+        return None
+
+    return readInJSON
+
+###############################################################################
+def loadOptions(currentCfg, optionsfile, printErrors) :
     """Load the external options file to override hard-coded values if required"""
     actualOptionsFilePath = os.path.expanduser(optionsfile)
-    try:
-        with open(actualOptionsFilePath) as of:
-            try:
-                newCfg = json.loads(of.read())
-            except Exception as e:
-                infoPrint(f'Could not parse options file {actualOptionsFilePath} will use defaults ({e})')
-                return currentCfg
-    except Exception as e:
-        infoPrint(f'Could not open options file {actualOptionsFilePath} will use defaults ({e})')
-        return currentCfg
+    newCfg = loadParseJSONFile(actualOptionsFilePath,printErrors)
+    if newCfg is not None:
+        combinedCfg = {}
+        for k in currentCfg.keys() :
+            if k in newCfg :
+                combinedCfg[k] = newCfg[k]
+            else :
+                combinedCfg[k] = currentCfg[k]
+        return combinedCfg
 
-    combinedCfg = {}
-    for k in currentCfg.keys() :
-        if k in newCfg :
-            combinedCfg[k] = newCfg[k]
-        else :
-            combinedCfg[k] = currentCfg[k]
-
-    return combinedCfg
+    infoPrint(f'No configuration overrides available, using default',printErrors)
+    return currentCfg
 
 ###############################################################################
 def encryptLocalFile(filename, password):

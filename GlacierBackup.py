@@ -38,108 +38,65 @@ cfg = {
     "VaultArchiveMinRetentionDays" : 90
 }
 
-
-
 ###############################################################################
 def loadLastActualInventory(invfile) :
     """ Load the last saved actual inventory file from disk if present """
-    actualInventory = {
-        "InventoryDate" : 0,
-        "ArchiveList": []
-    }
-
     invActualPath = os.path.expanduser(invfile)
-    try:
-        with open(invActualPath) as cf:
-            try:
-                actualInventory = json.loads(cf.read())
-            except Exception as e:
-                BackupSupport.infoPrint(f'Could not parse Inventory file {invActualPath} - {e}',cfg['INFOMSG'])
-                BackupSupport.infoPrint(f'Will use defaults',cfg['INFOMSG'])
-    except Exception as e:
-        BackupSupport.infoPrint(f'Could not load local Inventory Cache file {invActualPath} - {e}',cfg['INFOMSG'])
-        BackupSupport.infoPrint(f'Will use defaults',cfg['INFOMSG'])
-
-    return actualInventory
+    actualInvData = BackupSupport.loadParseJSONFile(invActualPath,cfg['INFOMSG'])
+    if actualInvData is not None :
+        return actualInvData
+    else :
+        BackupSupport.infoPrint('Will use dummy Actual Inventory data', cfg['INFOMSG'])
+        return {
+            "InventoryDate" : 0,
+            "ArchiveList": []
+        }
 
 ###############################################################################
 def saveLastActualInventory(actualInventory, invfile) :
     """the inverse of the above"""
-
     locInvFile = os.path.expanduser(invfile)
-    try:
-        with open(locInvFile,"w") as lif:
-            json.dump(actualInventory,lif)
-    except Exception as e:
-        print(f'ERROR - Unable to write local inventory copy file {locInvFile} - {e}')
-        exit(1)
+    BackupSupport.saveDataAsJSONFile(actualInventory,locInvFile)
 
 ###############################################################################
 def loadInventoryCache(invcachefile) :
     """ Load the locally-maintained inventory cache file from disk if present,
         otherwise initialise as empty """
-    inventoryCache = {
-        "vaultName" : cfg['GlacierVault'],
-        "vaultMaxSize" : cfg['VaultSizeLimit'],
-        "vaultContents" : [],
-    }
-
     cacheActualPath = os.path.expanduser(invcachefile)
-    try:
-        with open(cacheActualPath) as cf:
-            try:
-                inventoryCache = json.loads(cf.read())
-            except Exception as e:
-                BackupSupport.infoPrint(f'Could not parse local Inventory cache file {cacheActualPath} - {e}',cfg['INFOMSG'])
-                BackupSupport.infoPrint(f'Will use defaults',cfg['INFOMSG'])
-    except Exception as e:
-        BackupSupport.infoPrint(f'Could not load local Inventory Cache file {cacheActualPath} - {e}',cfg['INFOMSG'])
-        BackupSupport.infoPrint(f'Will use defaults',cfg['INFOMSG'])
-
-    return inventoryCache
+    invCache = BackupSupport.loadParseJSONFile(cacheActualPath,cfg['INFOMSG'])
+    if invCache is not None :
+        return invCache
+    else :
+        BackupSupport.infoPrint(f'Using Defaults for Inventory Cache',cfg['INFOMSG'])
+        return {
+            "vaultName" : cfg['GlacierVault'],
+            "vaultMaxSize" : cfg['VaultSizeLimit'],
+            "vaultContents" : [],
+        }
 
 ###############################################################################
 def saveLocalInventoryCache(inventorycache,invcachefile):
     """ the inverse of the above """
     actualcachefile = os.path.expanduser(invcachefile)
-    try:
-        with open(actualcachefile, "w") as cf:
-            json.dump(inventorycache, cf)
-    except Exception as e:
-        print(f'ERROR unable to save inventory cache file {actualcachefile} - {e}')
-        exit(1)
+    BackupSupport.saveDataAsJSONFile(inventorycache,actualcachefile)
 
 ###############################################################################
 def loadOutstandingJobsCache(jobcachefile) :
     """ Load the cache of jobs we know are outstanding, initialise to blank if
         empty """
-    jobCache = []
     cacheActualPath = os.path.expanduser(jobcachefile)
-    try:
-        with open(cacheActualPath) as cf:
-            try:
-                jobCache = json.loads(cf.read())
-            except Exception as e:
-                BackupSupport.infoPrint(f'Could not parse local Job cache file {cacheActualPath} - {e}',cfg['INFOMSG'])
-                BackupSupport.infoPrint(f'Will use defaults',cfg['INFOMSG'])
-    except Exception as e:
-        BackupSupport.infoPrint(f'Could not load local Job Cache file {cacheActualPath} - {e}',cfg['INFOMSG'])
-        BackupSupport.infoPrint(f'Will use defaults',cfg['INFOMSG'])
-
-    return jobCache
+    jobCache = BackupSupport.loadParseJSONFile(cacheActualPath,cfg['INFOMSG'])
+    if jobCache is not None :
+        return jobCache
+    else :
+        BackupSupport.infoPrint(f'Assuming empty Job Cache',cfg['INFOMSG'])
+        return []
 
 ###############################################################################
 def saveOutstandingJobsCache(jobsCache, jobcachefile) :
     """the inverse of the above"""
     actualcachefile = os.path.expanduser(jobcachefile)
-    try:
-        with open(actualcachefile, "w") as cf:
-            json.dump(jobsCache,cf)
-    except Exception as e:
-        print(f'ERROR unable to save job cache file {actualcachefile} - {e}')
-        exit(1)
-
-
+    BackupSupport.saveDataAsJSONFile(jobsCache,actualcachefile)
 
 ###############################################################################
 def checkOutstandingJobsAndUpdateInventoryIfNeeded(jobCache, inventoryCache, localInventoryFile) :
@@ -375,7 +332,7 @@ def backupLocalFilesIfNecessary(inventoryCache) :
 ###############################################################################
 ###############################################################################
 if __name__ == '__main__':
-    cfg = BackupSupport.loadOptions(cfg, optionsOverrideFile)
+    cfg = BackupSupport.loadOptions(cfg, optionsOverrideFile, cfg['INFOMSG'])
     inventoryCache = loadInventoryCache(cfg['VaultInventoryCacheFile'])
     jobCache = loadOutstandingJobsCache(cfg['GlacierOutstandingJobs'])
     jobCache, inventoryCache = checkOutstandingJobsAndUpdateInventoryIfNeeded(jobCache, inventoryCache, cfg['VaultInventoryFile'])
