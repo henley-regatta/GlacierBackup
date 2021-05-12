@@ -15,9 +15,9 @@ import json
 import os
 from datetime import datetime
 import tarfile
-import subprocess
 import boto3
 from botocore.exceptions import ClientError
+import BackupSupport #This is own own library of helper functions...
 
 #variables that should be overridable from the command-line or some global
 #config file
@@ -38,41 +38,7 @@ cfg = {
     "VaultArchiveMinRetentionDays" : 90
 }
 
-###############################################################################
-def debugPrint(msg) :
-    global cfg
-    if cfg['DEBUGME'] :
-        print(f'DEBUG {msg}')
 
-###############################################################################
-def infoPrint(msg) :
-    global cfg
-    if cfg['INFOMSG'] :
-        print(f'INFO {msg}')
-
-###############################################################################
-def loadOptions(currentCfg, optionsfile) :
-    """Load the external options file to override hard-coded values if required"""
-    actualOptionsFilePath = os.path.expanduser(optionsfile)
-    try:
-        with open(actualOptionsFilePath) as of:
-            try:
-                newCfg = json.loads(of.read())
-            except Exception as e:
-                infoPrint(f'Could not parse options file {actualOptionsFilePath} will use defaults ({e})')
-                return currentCfg
-    except Exception as e:
-        infoPrint(f'Could not open options file {actualOptionsFilePath} will use defaults ({e})')
-        return currentCfg
-
-    combinedCfg = {}
-    for k in currentCfg.keys() :
-        if k in newCfg :
-            combinedCfg[k] = newCfg[k]
-        else :
-            combinedCfg[k] = currentCfg[k]
-
-    return combinedCfg
 
 ###############################################################################
 def loadLastActualInventory(invfile) :
@@ -88,11 +54,11 @@ def loadLastActualInventory(invfile) :
             try:
                 actualInventory = json.loads(cf.read())
             except Exception as e:
-                infoPrint(f'Could not parse Inventory file {invActualPath} - {e}')
-                infoPrint(f'Will use defaults')
+                BackupSupport.infoPrint(f'Could not parse Inventory file {invActualPath} - {e}',cfg['INFOMSG'])
+                BackupSupport.infoPrint(f'Will use defaults',cfg['INFOMSG'])
     except Exception as e:
-        infoPrint(f'Could not load local Inventory Cache file {invActualPath} - {e}')
-        infoPrint(f'Will use defaults')
+        BackupSupport.infoPrint(f'Could not load local Inventory Cache file {invActualPath} - {e}',cfg['INFOMSG'])
+        BackupSupport.infoPrint(f'Will use defaults',cfg['INFOMSG'])
 
     return actualInventory
 
@@ -124,11 +90,11 @@ def loadInventoryCache(invcachefile) :
             try:
                 inventoryCache = json.loads(cf.read())
             except Exception as e:
-                infoPrint(f'Could not parse local Inventory cache file {cacheActualPath} - {e}')
-                infoPrint(f'Will use defaults')
+                BackupSupport.infoPrint(f'Could not parse local Inventory cache file {cacheActualPath} - {e}',cfg['INFOMSG'])
+                BackupSupport.infoPrint(f'Will use defaults',cfg['INFOMSG'])
     except Exception as e:
-        infoPrint(f'Could not load local Inventory Cache file {cacheActualPath} - {e}')
-        infoPrint(f'Will use defaults')
+        BackupSupport.infoPrint(f'Could not load local Inventory Cache file {cacheActualPath} - {e}',cfg['INFOMSG'])
+        BackupSupport.infoPrint(f'Will use defaults',cfg['INFOMSG'])
 
     return inventoryCache
 
@@ -154,11 +120,11 @@ def loadOutstandingJobsCache(jobcachefile) :
             try:
                 jobCache = json.loads(cf.read())
             except Exception as e:
-                infoPrint(f'Could not parse local Job cache file {cacheActualPath} - {e}')
-                infoPrint(f'Will use defaults')
+                BackupSupport.infoPrint(f'Could not parse local Job cache file {cacheActualPath} - {e}',cfg['INFOMSG'])
+                BackupSupport.infoPrint(f'Will use defaults',cfg['INFOMSG'])
     except Exception as e:
-        infoPrint(f'Could not load local Job Cache file {cacheActualPath} - {e}')
-        infoPrint(f'Will use defaults')
+        BackupSupport.infoPrint(f'Could not load local Job Cache file {cacheActualPath} - {e}',cfg['INFOMSG'])
+        BackupSupport.infoPrint(f'Will use defaults',cfg['INFOMSG'])
 
     return jobCache
 
@@ -173,32 +139,7 @@ def saveOutstandingJobsCache(jobsCache, jobcachefile) :
         print(f'ERROR unable to save job cache file {actualcachefile} - {e}')
         exit(1)
 
-###############################################################################
-def encryptLocalFile(filename, password):
-    """Encrypt a local file using openssl with a password. Not the strongest
-    or safest but better than nothing and, crucially, won't require this script
-    to decrypt later, just openssl"""
-    encryptedFileName = filename + ".enc"
 
-    try:
-        subprocess.run([cfg['opensslbinary'], 'enc', '-aes-256-cbc', '-pbkdf2',
-                        '-salt', '-in', filename, '-out', encryptedFileName,
-                        '-k', password], capture_output=False, shell=False)
-    except Exception as e:
-        print(f'ERROR encrypting archive, returned {e}')
-        exit(3)
-
-    #Check the archive got created OK
-    if os.path.exists(encryptedFileName) and os.path.getsize(encryptedFileName) > 0 :
-        #It's there. Remove the original file, return pointer to encrypted
-        try:
-            os.remove(filename)
-        except Exception as e:
-            print(f' WARN could not remove original archive {filename} : {e}')
-        return encryptedFileName
-    else :
-        print(f' ERROR Encrypted file {encryptedFileName} invalid after ssl. Something Went Wrong')
-        exit(4)
 
 ###############################################################################
 def checkOutstandingJobsAndUpdateInventoryIfNeeded(jobCache, inventoryCache, localInventoryFile) :
@@ -216,12 +157,12 @@ def checkOutstandingJobsAndUpdateInventoryIfNeeded(jobCache, inventoryCache, loc
             newJobCache.append(cJob)
         jType = response["Action"]
         jStatus = response["StatusCode"]
-        infoPrint(f'Outstanding Job {cJob["jobId"]} of type {jType} is currently in state {jStatus}')
+        BackupSupport.infoPrint(f'Outstanding Job {cJob["jobId"]} of type {jType} is currently in state {jStatus}',cfg['INFOMSG'])
         if jStatus == "Succeeded" :
             newInventory = retrieveInventoryResults(cJob["jobId"], cJob["vaultID"], localInventoryFile)
-            debugPrint(f'retrieved inventory: {newInventory}')
+            BackupSupport.debugPrint(f'retrieved inventory: {newInventory}', cfg['DEBUGME'])
             newInventoryCache = reconcileInventory(inventoryCache, newInventory)
-            debugPrint(f'Updated local inventory cache to: {newInventoryCache}')
+            BackupSupport.debugPrint(f'Updated local inventory cache to: {newInventoryCache}', cfg['DEBUGME'])
         elif jStatus == "Failed" :
             print(f'WARN - Inventory Retrieve job {cJob["jobId"]} FAILED - {response}')
         else :
@@ -358,7 +299,7 @@ def createAndEncryptArchiveBlob(filesToArchive, directoryToUse, encryptionKey) :
 
     #Encrypt this file if an encryption key is set
     if len(encryptionKey)>0 :
-        finalArchive = encryptLocalFile(FQArchiveFile,encryptionKey)
+        finalArchive = BackupSupport.encryptLocalFile(FQArchiveFile,encryptionKey)
     else :
         finalArchive = FQArchiveFile
 
@@ -373,7 +314,7 @@ def uploadArchiveFileToGlacier(archiveToUpload) :
         print(f'ERROR - Unable to open {archiveToUpload} for transmission to Glacier: {e}')
         exit(1)
 
-    infoPrint(f'Uploading archive {archiveToUpload} to Glacier')
+    BackupSupport.infoPrint(f'Uploading archive {archiveToUpload} to Glacier',cfg['INFOMSG'])
     glacier = boto3.client('glacier')
     try:
         archive = glacier.upload_archive(vaultName=cfg["GlacierVault"],
@@ -385,7 +326,7 @@ def uploadArchiveFileToGlacier(archiveToUpload) :
     finally :
         object_data.close()
 
-    infoPrint(f'Archive upload complete with ID = {archive["archiveId"]}')
+    BackupSupport.infoPrint(f'Archive upload complete with ID = {archive["archiveId"]}',cfg['INFOMSG'])
     return archive["archiveId"]
 
 ###############################################################################
@@ -395,9 +336,9 @@ def backupLocalFilesIfNecessary(inventoryCache) :
 
     markerFile=os.path.expanduser(os.path.join(cfg['backupArchiveLocalPath'], cfg['backupCloudReadyFlagFile']))
     if os.path.exists(markerFile) :
-        infoPrint(f'Local Backup system indicates a complete set ready for backup, proceeding:')
+        BackupSupport.infoPrint(f'Local Backup system indicates a complete set ready for backup, proceeding:',cfg['INFOMSG'])
     else :
-        infoPrint(f'No marker file found. Nothing to send to the cloud')
+        BackupSupport.infoPrint(f'No marker file found. Nothing to send to the cloud',cfg['INFOMSG'])
         return inventoryCache
 
     #Determine what files should be in the archive blob to upload:
@@ -434,16 +375,16 @@ def backupLocalFilesIfNecessary(inventoryCache) :
 ###############################################################################
 ###############################################################################
 if __name__ == '__main__':
-    cfg = loadOptions(cfg, optionsOverrideFile)
+    cfg = BackupSupport.loadOptions(cfg, optionsOverrideFile)
     inventoryCache = loadInventoryCache(cfg['VaultInventoryCacheFile'])
     jobCache = loadOutstandingJobsCache(cfg['GlacierOutstandingJobs'])
     jobCache, inventoryCache = checkOutstandingJobsAndUpdateInventoryIfNeeded(jobCache, inventoryCache, cfg['VaultInventoryFile'])
 
     #We should request a new Inventory from Amazon if certain conditions apply:
     timeSinceLastInventory = int(datetime.now().timestamp()) - inventoryCache["lastActualInventoryTime"]
-    infoPrint(f'It has been {timeSinceLastInventory} seconds since the last Amazon inventory was taken')
+    BackupSupport.infoPrint(f'It has been {timeSinceLastInventory} seconds since the last Amazon inventory was taken',cfg['INFOMSG'])
     if len(jobCache) == 0 and timeSinceLastInventory >= cfg['VaultInventoryRequestWindow'] :
-        infoPrint(f'Amazon inventory probably stale; requesting a new one')
+        BackupSupport.infoPrint(f'Amazon inventory probably stale; requesting a new one',cfg['INFOMSG'])
         jobId,vaultID = requestNewInventoryFromAmazon(cfg['GlacierVault'])
         jobCache.append({ "vaultID" : vaultID, "jobId" : jobId })
 
@@ -452,12 +393,12 @@ if __name__ == '__main__':
     inventoryCache['vaultEstimatedTotalSize'] = calculateVaultSize(inventoryCache)
     inventoryCache['vaultEstimatedSpaceRemaining'] = cfg['VaultSizeLimit'] - inventoryCache['vaultEstimatedTotalSize']
     inventoryCache['nextArchiveEstimatedSize'] = estimateNextBackupSize(inventoryCache)
-    infoPrint(f'Vault remaining capacity: {inventoryCache["vaultEstimatedSpaceRemaining"]}')
+    BackupSupport.infoPrint(f'Vault remaining capacity: {inventoryCache["vaultEstimatedSpaceRemaining"]}',cfg['INFOMSG'])
     if inventoryCache['nextArchiveEstimatedSize'] < inventoryCache['vaultEstimatedSpaceRemaining'] :
-        infoPrint(f'Vault has sufficient capacity for next estimated backup size ({inventoryCache["nextArchiveEstimatedSize"]}); no pruning required')
+        BackupSupport.infoPrint(f'Vault has sufficient capacity for next estimated backup size ({inventoryCache["nextArchiveEstimatedSize"]}); no pruning required',cfg['INFOMSG'])
         inventoryCache = backupLocalFilesIfNecessary(inventoryCache)
     else :
-        infoPrint(f'Insufficient space for another backup; pruning')
+        BackupSupport.infoPrint(f'Insufficient space for another backup; pruning',cfg['INFOMSG'])
         #TODO : Write pruning function
 
     saveOutstandingJobsCache(jobCache,cfg['GlacierOutstandingJobs'])
