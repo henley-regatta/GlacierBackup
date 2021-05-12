@@ -17,6 +17,7 @@ from datetime import datetime
 import tarfile
 import subprocess
 import glob
+import BackupSupport #This is own own library of helper functions...
 
 #variables that should be overridable from the command-line or some global
 #config file
@@ -39,82 +40,33 @@ forbiddenFileExtensions = []
 excludeList = set()
 
 ###############################################################################
-def debugPrint(msg) :
-    global cfg
-    if cfg['DEBUGME'] :
-        print(f'DEBUG {msg}')
-
-###############################################################################
-def infoPrint(msg) :
-    global cfg
-    if cfg['INFOMSG'] :
-        print(f'INFO {msg}')
-
-###############################################################################
-def loadOptions(currentCfg, optionsfile) :
-    """Load the external options file to override hard-coded values if required"""
-    actualOptionsFilePath = os.path.expanduser(optionsfile)
-    try:
-        with open(actualOptionsFilePath) as of:
-            try:
-                newCfg = json.loads(of.read())
-            except Exception as e:
-                infoPrint(f'Could not parse options file {actualOptionsFilePath} will use defaults ({e})')
-                return currentCfg
-    except Exception as e:
-        infoPrint(f'Could not open options file {actualOptionsFilePath} will use defaults ({e})')
-        return currentCfg
-
-    combinedCfg = {}
-    for k in currentCfg.keys() :
-        if k in newCfg :
-            combinedCfg[k] = newCfg[k]
-        else :
-            combinedCfg[k] = currentCfg[k]
-
-    return combinedCfg
-
-
-###############################################################################
 def getFileSpecs(fileSpec) :
     """ Load the include / exclude specifications from external JSON, with a
     certain amount of error handling """
     incexcspecactualpath = os.path.expanduser(fileSpec)
-    try:
-        with open(incexcspecactualpath) as sf:
-            try:
-                fspecs = json.loads(sf.read())
-                return fspecs
-            except Exception as e:
-                print(f'ERROR failure parsing JSON in {incexcspecactualpath} : {e}')
-                exit(2)
-    except Exception as e:
-        print(f'ERROR reading include/exclude file {incexcspecactualpath} : {e}')
+    fspecs = BackupSupport.loadParseJSONFile(incexcspecactualpath,cfg['INFOMSG'])
+    if fspecs is not None :
+        return fspecs
+    else :
+        #Can't go on without a file specification to load, abort
+        print(f'ERROR - Cannot proceed without a file specification to backup')
         exit(1)
-
-###############################################################################
+    ###############################################################################
 def loadPreviousBackupData(fileSpec) :
     """ Load the stored previous backup state, if available """
     prevStateactualPath = os.path.expanduser(fileSpec)
-    prevState = { 'metadata' : {'lastBackupTS': 0 }}
-    try:
-        with open(prevStateactualPath) as psf:
-            try:
-                prevState = json.loads(psf.read())
-            except Exception as e:
-                infoPrint(f'Could not parse JSON from {prevStateactualPath}, will assume fresh backup required (error: {e})')
-    except Exception as e:
-        infoPrint(f'Could not open file {prevStateactualPath}, will assume fresh backup required (error: {e})')
-    return prevState
+    prevState = BackupSupport.loadParseJSONFile(prevStateactualPath,cfg['INFOMSG'])
+    if prevState is not None :
+        return prevState
+    else :
+        BackupSupport.infoPrint('Using blank previous backup state',cfg['INFOMSG'])
+        return { 'metadata' : {'lastBackupTS': 0 }}
 
 ###############################################################################
 def writeNewBackupData(fileSpec, newMetaData, newFileHashList) :
     oldStateActualPath = os.path.expanduser(fileSpec)
-    try:
-        with open(oldStateActualPath, 'w') as csf:
-            json.dump({"metadata" : newMetaData, "filelist" : newFileHashList}, csf)
-    except Exception as e:
-        print(f'ERROR: Unable to write backup state file {oldStateActualPath} because {e}')
+    backupData = {"metadata" : newMetaData, "filelist" : newFileHashList}
+    BackupSupport.saveDataAsJSONFile(backupData,oldStateActualPath)
 
 ###############################################################################
 #Optimisations used by the individual file parser for exceptions below:
@@ -130,8 +82,8 @@ def prepareExclusionLists(exclusions) :
             exDirs.append(exCand)
     # Similar but used by the directory walker to exclude matching directories:
     excludeList = set(exDirs)
-    infoPrint(f'excluding files with extensions {forbiddenFileExtensions}')
-    infoPrint(f'excluding directory trees from: {excludeList}')
+    BackupSupport.infoPrint(f'excluding files with extensions {forbiddenFileExtensions}',cfg['INFOMSG'])
+    BackupSupport.infoPrint(f'excluding directory trees from: {excludeList}',cfg['INFOMSG'])
 
 ###############################################################################
 def matchFileExtension(filename) :
@@ -162,11 +114,11 @@ def buildCurrentFileHashes(pathsToCheck) :
     files with their hashes into the current hashes list """
     allFileHashes = {}
     for filespec in pathsToCheck :
-        infoPrint(f'Scanning spec: {filespec}')
+        BackupSupport.infoPrint(f'Scanning spec: {filespec}',cfg['INFOMSG'])
         for path, dirs, files in os.walk(filespec, topdown=True) :
             #Map out any dirs matching the excludes list
             dirs[:] = [d for d in dirs if d not in excludeList]
-            debugPrint(f'Scanning path: {path}')
+            BackupSupport.debugPrint(f'Scanning path: {path}',cfg['DEBUGME'])
             for fname in files:
                 if not matchFileExtension(fname) :
                     fqname = os.path.join(path, fname)
@@ -239,7 +191,7 @@ def generateNewMetadata(previousMetaData) :
 
     else :
         cIncrementals = previousMetaData["numIncrementals"] + 1
-        infoPrint(f'This will be an Incremental backup {cIncrementals} of {cfg["maxIncrementsBetweenFullBackups"]}')
+        BackupSupport.infoPrint(f'This will be an Incremental backup {cIncrementals} of {cfg["maxIncrementsBetweenFullBackups"]}',cfg['INFOMSG'])
         cArchiveName = cBackupTS + "_incr_from_" + previousMetaData["lastBackupTS"]
 
     #Build and return the new metadata struct:
@@ -258,33 +210,6 @@ def createLocalArchive(filename, filelist):
     return archiveFile
 
 ###############################################################################
-def encryptLocalFile(filename, password):
-    """Encrypt a local file using openssl with a password. Not the strongest
-    or safest but better than nothing and, crucially, won't require this script
-    to decrypt later, just openssl"""
-    encryptedFileName = filename + ".enc"
-
-    try:
-        subprocess.run([cfg['opensslbinary'], 'enc', '-aes-256-cbc', '-pbkdf2',
-                        '-salt', '-in', filename, '-out', encryptedFileName,
-                        '-k', password], capture_output=False, shell=False)
-    except Exception as e:
-        print(f' ERRROR encrypting archive, returned {e}')
-        exit(3)
-
-    #Check the archive got created OK
-    if os.path.exists(encryptedFileName) and os.path.getsize(encryptedFileName) > 0 :
-        #It's there. Remove the original file, return pointer to encrypted
-        try:
-            os.remove(filename)
-        except Exception as e:
-            print(f' WARN could not remove original archive {filename} : {e}')
-        return encryptedFileName
-    else :
-        print(f' ERROR Encrypted file {encryptedFileName} invalid after ssl. Something Went Wrong')
-        exit(4)
-
-###############################################################################
 def runLocalBackup(cfg) :
     """A wrapper for Part One of the requirement - create a local backup archive.
       There's nothing to stop you using this stand-alone as the result is a chain
@@ -296,13 +221,13 @@ def runLocalBackup(cfg) :
     currentFileHashes = buildCurrentFileHashes(fspecs['includes'])
     previousBackupData = loadPreviousBackupData(cfg['previousFileStateStore'])
     thisBackupFileList = buildfileListToBackup(currentFileHashes,previousBackupData)
-    infoPrint(f'Current backup set contains {len(thisBackupFileList)} files out of {len(currentFileHashes.keys())} found by scan')
+    BackupSupport.infoPrint(f'Current backup set contains {len(thisBackupFileList)} files out of {len(currentFileHashes.keys())} found by scan',cfg['INFOMSG'])
     currentMetaData = generateNewMetadata(previousBackupData["metadata"])
     localBackupFile = os.path.join(cfg['backupArchiveLocalPath'],currentMetaData["archiveName"])
     backupFileName = createLocalArchive(localBackupFile,thisBackupFileList)
     if "localEncryptionKey" in cfg and len(cfg['localEncryptionKey'])>0 :
-        backupFileName = encryptLocalFile(backupFileName,cfg['localEncryptionKey'])
-    infoPrint(f'Created local archive file in {backupFileName}')
+        backupFileName = BackupSupport.encryptLocalFile(backupFileName,cfg['localEncryptionKey'])
+    BackupSupport.infoPrint(f'Created local archive file in {backupFileName}',cfg['INFOMSG'])
     writeNewBackupData(cfg['previousFileStateStore'], currentMetaData, currentFileHashes)
     return backupFileName
 
@@ -310,5 +235,5 @@ def runLocalBackup(cfg) :
 ###############################################################################
 ###############################################################################
 if __name__ == '__main__':
-    cfg = loadOptions(cfg, optionsOverrideFile)
+    cfg = BackupSupport.loadOptions(cfg, optionsOverrideFile, cfg['INFOMSG'])
     localBackupFile = runLocalBackup(cfg)
