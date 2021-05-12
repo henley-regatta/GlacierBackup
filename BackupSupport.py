@@ -1,12 +1,13 @@
-###############################################################################
-# BackupSupport.py
-# ---------------------------
-# Common functions used by the Local and Glacier backup programs.
-# A library, if you will.
-#
-# This is all fully and completely documented here:
-#  https://www.guided-naafi.org/systemsmanagement/2021/05/06/WritingMyOwnGlacierBackupClient.html
-###############################################################################
+"""
+BackupSupport.py
+----------------
+
+Common functions used by the Local and Glacier backup programs.
+A library, if you will.
+
+This is all fully and completely documented here:
+https://www.guided-naafi.org/systemsmanagement/2021/05/06/WritingMyOwnGlacierBackupClient.html
+"""
 import json
 import os
 from datetime import datetime
@@ -14,16 +15,19 @@ import subprocess
 
 ###############################################################################
 def debugPrint(msg,doPrint) :
+    """Print a formatted DEBUG message if enabled"""
     if doPrint :
         print(f'DEBUG {msg}')
 
 ###############################################################################
 def infoPrint(msg,doPrint) :
+    """Print a formatted INFO message if enabled"""
     if doPrint :
         print(f'INFO {msg}')
 
 ###############################################################################
 def saveDataAsJSONFile(dataStructure,path_to_json_file) :
+    """Write a data structure as JSON to a file, abort on failure"""
     try:
         with open(path_to_json_file, "w") as wf:
             json.dump(dataStructure, wf)
@@ -33,6 +37,8 @@ def saveDataAsJSONFile(dataStructure,path_to_json_file) :
 
 ###############################################################################
 def loadParseJSONFile(path_to_json_file,printErrors) :
+    """Load a data structure from JSON stored in an external file. Returns
+       either the data structure or None if there's an error"""
     try:
         with open(path_to_json_file) as jf:
             try:

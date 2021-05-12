@@ -1,17 +1,17 @@
 #!/usr/bin/python3
-###############################################################################
-# GlacierBackup.py
-# ---------------------------
-# This is the part of the backup process intended to integrate with a cloud
-# storage location. It takes the output of a local backup process - a bunch of
-# files in a specified directory trusted as minimal archive files - and batch
-# uploads them to (in this case) Amazon S3 Glacier Storage with appropriate
-# storage and transfer management to mimimise costs.
-#
-# This is all fully and completely documented here:
-#  https://www.guided-naafi.org/systemsmanagement/2021/05/06/WritingMyOwnGlacierBackupClient.html
-###############################################################################
-import json
+"""
+GlacierBackup.py
+----------------
+
+This is the part of the backup process intended to integrate with a cloud
+storage location. It takes the output of a local backup process - a bunch of
+files in a specified directory trusted as minimal archive files - and batch
+uploads them to (in this case) Amazon S3 Glacier Storage with appropriate
+storage and transfer management to mimimise costs.
+This is all fully and completely documented here:
+https://www.guided-naafi.org/systemsmanagement/2021/05/06/WritingMyOwnGlacierBackupClient.html
+"""
+
 import os
 from datetime import datetime
 import tarfile
@@ -54,7 +54,7 @@ def loadLastActualInventory(invfile) :
 
 ###############################################################################
 def saveLastActualInventory(actualInventory, invfile) :
-    """the inverse of the above"""
+    """Save an actual AWS Vault Inventory to local file"""
     locInvFile = os.path.expanduser(invfile)
     BackupSupport.saveDataAsJSONFile(actualInventory,locInvFile)
 
@@ -76,7 +76,7 @@ def loadInventoryCache(invcachefile) :
 
 ###############################################################################
 def saveLocalInventoryCache(inventorycache,invcachefile):
-    """ the inverse of the above """
+    """ Save our cached Inventory data to local file """
     actualcachefile = os.path.expanduser(invcachefile)
     BackupSupport.saveDataAsJSONFile(inventorycache,actualcachefile)
 
@@ -94,7 +94,7 @@ def loadOutstandingJobsCache(jobcachefile) :
 
 ###############################################################################
 def saveOutstandingJobsCache(jobsCache, jobcachefile) :
-    """the inverse of the above"""
+    """Save the cache of outstanding AWS jobs to local file"""
     actualcachefile = os.path.expanduser(jobcachefile)
     BackupSupport.saveDataAsJSONFile(jobsCache,actualcachefile)
 
@@ -264,6 +264,8 @@ def createAndEncryptArchiveBlob(filesToArchive, directoryToUse, encryptionKey) :
 
 ###############################################################################
 def uploadArchiveFileToGlacier(archiveToUpload) :
+    """ The actual core of the script. Upload an Archive to an AWS S3 Vault """
+
     #nb: Glacier works on byte-strings so we need to actually stream the file:
     try:
         object_data = open(archiveToUpload,"rb")

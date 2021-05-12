@@ -1,21 +1,20 @@
 #!/usr/bin/python3
-###############################################################################
-# LocalIncrementalBackup.py
-# ---------------------------
-# Generate a set of local incremental backups in a given output/temp directory.
-# Intended as "Stage 1" of a 2 stage process - stage 2 will process the files
-# created and shovel them off safely / securely to some off-board possibly
-# cloudy location...
-#
-# This is all fully and completely documented here:
-#  https://www.guided-naafi.org/systemsmanagement/2021/05/06/WritingMyOwnGlacierBackupClient.html
-###############################################################################
-import json
+"""
+LocalIncrementalBackup.py
+-------------------------
+Generate a set of local incremental backups in a given output/temp directory.
+Intended as "Stage 1" of a 2 stage process - stage 2 will process the files
+created and shovel them off safely / securely to some off-board possibly
+cloudy location...
+
+This is all fully and completely documented here:
+https://www.guided-naafi.org/systemsmanagement/2021/05/06/WritingMyOwnGlacierBackupClient.html
+"""
+
 import os
 import hashlib
 from datetime import datetime
 import tarfile
-import subprocess
 import glob
 import BackupSupport #This is own own library of helper functions...
 
@@ -51,7 +50,8 @@ def getFileSpecs(fileSpec) :
         #Can't go on without a file specification to load, abort
         print(f'ERROR - Cannot proceed without a file specification to backup')
         exit(1)
-    ###############################################################################
+
+###############################################################################
 def loadPreviousBackupData(fileSpec) :
     """ Load the stored previous backup state, if available """
     prevStateactualPath = os.path.expanduser(fileSpec)
@@ -64,6 +64,7 @@ def loadPreviousBackupData(fileSpec) :
 
 ###############################################################################
 def writeNewBackupData(fileSpec, newMetaData, newFileHashList) :
+    """ Write the state of what files we know about to local file for next time """
     oldStateActualPath = os.path.expanduser(fileSpec)
     backupData = {"metadata" : newMetaData, "filelist" : newFileHashList}
     BackupSupport.saveDataAsJSONFile(backupData,oldStateActualPath)
