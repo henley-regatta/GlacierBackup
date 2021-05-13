@@ -331,6 +331,71 @@ def backupLocalFilesIfNecessary(inventoryCache) :
     return inventoryCache
 
 ###############################################################################
+def pruneVaultToSpecifiedFreeSpace(inventoryCache, requiredExtraSpace) :
+    """ Attempt to prune the Vault to free up space to enable next backup to be
+        taken. Uses aging as well as size heuristics """
+    minAge = cfg['VaultArchiveMinRetentionDays'] * 86400
+    now = datetime.now().timestamp()
+    candidateArchives = {} #Index by age, better to sort by
+
+    #This is going to make the bookkeping a bit easier at the end
+    currentArchives = {}
+    for arc in inventoryCache['vaultContents'] :
+        currentArchives[arc['archiveid']] = arc
+
+    # Look through the inventory for all archives OLDER than the age threshold:
+    for (aid, arc) in currentArchives.items() :
+        arcAge = now - arc['uploadTime']
+        BackupSupport.debugPrint(f'PRUNING: {arc["description"]} is {arcAge/86400} days old',cfg['DEBUGME'])
+        if arcAge > minAge :
+            BackupSupport.debugPrint(f'PRUNING {arc["description"]} can be pruned',cfg['DEBUGME'])
+            candidateArchives[arcAge] = arc
+
+    #Now thin this out to the OLDEST archives that SUM to match the required space:
+    pruneArchives=[]
+    pruneSpace=0
+    for d in sorted(candidateArchives) :
+        if pruneSpace > requiredExtraSpace :
+            #We have enough space to prune, don't add any more
+            break
+        else :
+            pruneSpace += candidateArchives[d]['size']
+            pruneArchives.append(candidateArchives[d])
+    BackupSupport.debugPrint(f'PRUNING: Will Prune {pruneArchives} to free up {pruneSpace} bytes',cfg['DEBUGME'])
+
+    #Go through and run the deletions on them:
+    spaceToGo = requiredExtraSpace
+    for delet_dis in pruneArchives :
+        BackupSupport.infoPrint(f'PRUNING: Deleting {delet_dis["archiveid"]} to free {delet_dis["size"]}',cfg['INFOMSG'])
+        isGone = pruneArchive(cfg['GlacierVault'], delet_dis['archiveid'])
+        if isGone :
+            #Remove the archive from the inventory,
+            spaceToGo -= delet_dis['size']
+            del currentArchives[delet_dis['archiveid']]
+        else :
+            print(f'WARN : pruneArchive failed for {delet_dis["archiveid"]}')
+
+    #Update the inventoryCache based on what's left
+    inventoryCache['vaultContents'] = list(currentArchives.values())
+
+    return inventoryCache, spaceToGo<0
+
+
+###############################################################################
+def pruneArchive(vault_name,archive_id) :
+    """ Issue request to AWS to actually delete an archive. Operation is
+    synchronous so return value can be used to evaluate success/failure """
+
+    glacier = boto3.client('glacier')
+    try:
+        response = glacier.delete_archive(vaultName=vault_name,
+                                          archiveId=archive_id)
+    except ClientError as e:
+        print(f'WARN : glacier.delete_archive failed {e}')
+        return False
+    return True
+
+###############################################################################
 ###############################################################################
 ###############################################################################
 if __name__ == '__main__':
@@ -357,8 +422,15 @@ if __name__ == '__main__':
         BackupSupport.infoPrint(f'Vault has sufficient capacity for next estimated backup size ({inventoryCache["nextArchiveEstimatedSize"]}); no pruning required',cfg['INFOMSG'])
         inventoryCache = backupLocalFilesIfNecessary(inventoryCache)
     else :
-        BackupSupport.infoPrint(f'Insufficient space for another backup; pruning',cfg['INFOMSG'])
-        #TODO : Write pruning function
+        requiredSpaceToPrune = inventoryCache['nextArchiveEstimatedSize'] - inventoryCache['vaultEstimatedSpaceRemaining']
+        BackupSupport.infoPrint(f'Insufficient space for another backup; need {requiredSpaceToPrune} bytes. Pruning...',cfg['INFOMSG'])
+        inventoryCache, freedUpEnoughSpace = pruneVaultToSpecifiedFreeSpace(inventoryCache, requiredSpaceToPrune)
+        if freedUpEnoughSpace :
+            BackupSupport.infoPrint(f'Pruning cleared enough space; running backup',cfg['INFOMSG'])
+            inventoryCache = backupLocalFilesIfNecessary(inventoryCache)
+        else :
+            print(f'WARN - Pruning Vault Space did not free up enough space. Cloud backups inhibited')
+
 
     saveOutstandingJobsCache(jobCache,cfg['GlacierOutstandingJobs'])
     saveLocalInventoryCache(inventoryCache,cfg['VaultInventoryCacheFile'])
