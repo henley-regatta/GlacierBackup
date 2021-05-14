@@ -48,7 +48,7 @@ def getFileSpecs(fileSpec) :
         return fspecs
     else :
         #Can't go on without a file specification to load, abort
-        print(f'ERROR - Cannot proceed without a file specification to backup')
+        BackupSupport.errorPrint(f'Cannot proceed without a file specification to backup')
         exit(1)
 
 ###############################################################################
@@ -106,7 +106,7 @@ def getFileHash(fqfilename)  :
                 hash_blake2b.update(chunk)
         return hash_blake2b.hexdigest()
     except Exception as e:
-        print(f'WARN Error generating hash for {fqfilename}: {e}')
+        BackupSupport.warnPrint(f'Error generating hash for {fqfilename}: {e}')
         return 0
 
 ###############################################################################
@@ -183,9 +183,9 @@ def generateNewMetadata(previousMetaData) :
         try:
             with open(cloudBackupReadyFlagFile, "w") as ff:
                 ff.write(cBackupTS)
-            infoPrint(f'Since this was the last incremental backup, wrote flag-file {cloudBackupReadyFlagFile} to signal ready for cloud Backup')
+            BackupSupport.infoPrint(f'Since this was the last incremental backup, wrote flag-file {cloudBackupReadyFlagFile} to signal ready for cloud Backup')
         except Exception as e:
-            print(f'WARN Unable to create flag file for cloud backup as {cloudBackupReadyFlagFile}, error {e}')
+            BackupSupport.warnPrint(f'Unable to create flag file for cloud backup as {cloudBackupReadyFlagFile}, error {e}')
     if "OverrideTakeFullBackup" in cfg or "numIncrementals" not in previousMetaData or previousMetaData["numIncrementals"] > cfg['maxIncrementsBetweenFullBackups'] :
         cIncrementals = 0
         cArchiveName = cBackupTS + "_full"
@@ -227,7 +227,7 @@ def runLocalBackup(cfg) :
     localBackupFile = os.path.join(cfg['backupArchiveLocalPath'],currentMetaData["archiveName"])
     backupFileName = createLocalArchive(localBackupFile,thisBackupFileList)
     if "localEncryptionKey" in cfg and len(cfg['localEncryptionKey'])>0 :
-        backupFileName = BackupSupport.encryptLocalFile(backupFileName,cfg['localEncryptionKey'])
+        backupFileName = BackupSupport.encryptLocalFile(backupFileName,cfg['localEncryptionKey'],cfg['opensslbinary'])
     BackupSupport.infoPrint(f'Created local archive file in {backupFileName}',cfg['INFOMSG'])
     writeNewBackupData(cfg['previousFileStateStore'], currentMetaData, currentFileHashes)
     return backupFileName

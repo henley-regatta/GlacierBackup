@@ -110,7 +110,7 @@ def checkOutstandingJobsAndUpdateInventoryIfNeeded(jobCache, inventoryCache, loc
         try:
             response = glacier.describe_job(vaultName=cJob['vaultID'], jobId=cJob['jobId'])
         except ClientError as e:
-            print(f'WARN - Could not retrieve job status for {cJob["jobId"]}, error was {e}')
+            BackupSupport.warnPrint(f'Could not retrieve job status for {cJob["jobId"]}, error was {e}')
             newJobCache.append(cJob)
         jType = response["Action"]
         jStatus = response["StatusCode"]
@@ -121,7 +121,7 @@ def checkOutstandingJobsAndUpdateInventoryIfNeeded(jobCache, inventoryCache, loc
             newInventoryCache = reconcileInventory(inventoryCache, newInventory)
             BackupSupport.debugPrint(f'Updated local inventory cache to: {newInventoryCache}', cfg['DEBUGME'])
         elif jStatus == "Failed" :
-            print(f'WARN - Inventory Retrieve job {cJob["jobId"]} FAILED - {response}')
+            BackupSupport.warnPrint(f'Inventory Retrieve job {cJob["jobId"]} FAILED - {response}')
         else :
             #Job is still running...
             newJobCache.append(cJob)
@@ -138,8 +138,8 @@ def retrieveInventoryResults(completedJobID, vaultID, localInvFile) :
         response = glacier.get_job_output(vaultName=vaultID, jobId=completedJobID)
         respBody = json.loads(response['body'].read())
     except ClientError as e:
-        print(f'ERROR - Unable to retrieve job output for completed job {completedJobID}')
-        print(f'ERROR - glacier.get_job_output() returned {e}')
+        BackupSupport.errorPrint(f'Unable to retrieve job output for completed job {completedJobID}')
+        BackupSupport.errorPrint(f'glacier.get_job_output() returned {e}')
         exit(2)
 
     saveLastActualInventory(respBody, localInvFile)
@@ -161,7 +161,7 @@ def requestNewInventoryFromAmazon(vaultToInventory) :
         response = glacier.initiate_job(vaultName=vaultToInventory,
                                         jobParameters=job_parms)
     except ClientError as e:
-        print(f'ERROR - Unable to request new Inventory for {vaultToInventory} - {e}')
+        BackupSupport.errorPrint(f'Unable to request new Inventory for {vaultToInventory} - {e}')
         exit(2)
 
     return response["jobId"], vaultToInventory
@@ -256,7 +256,7 @@ def createAndEncryptArchiveBlob(filesToArchive, directoryToUse, encryptionKey) :
 
     #Encrypt this file if an encryption key is set
     if len(encryptionKey)>0 :
-        finalArchive = BackupSupport.encryptLocalFile(FQArchiveFile,encryptionKey)
+        finalArchive = BackupSupport.encryptLocalFile(FQArchiveFile,encryptionKey,cfg['opensslbinary'])
     else :
         finalArchive = FQArchiveFile
 
@@ -270,7 +270,7 @@ def uploadArchiveFileToGlacier(archiveToUpload) :
     try:
         object_data = open(archiveToUpload,"rb")
     except Exception as e :
-        print(f'ERROR - Unable to open {archiveToUpload} for transmission to Glacier: {e}')
+        BackupSupport.errorPrint(f'ERROR - Unable to open {archiveToUpload} for transmission to Glacier: {e}')
         exit(1)
 
     BackupSupport.infoPrint(f'Uploading archive {archiveToUpload} to Glacier',cfg['INFOMSG'])
@@ -280,7 +280,7 @@ def uploadArchiveFileToGlacier(archiveToUpload) :
                                          archiveDescription=archiveToUpload,
                                          body=object_data)
     except ClientError as e :
-        prinf(f'ERROR - Upload of {archiveToUpload} to Glacier failed: {e}')
+        BackupSupport.errorPrint(f'Upload of {archiveToUpload} to Glacier failed: {e}')
         exit(2)
     finally :
         object_data.close()
@@ -373,7 +373,7 @@ def pruneVaultToSpecifiedFreeSpace(inventoryCache, requiredExtraSpace) :
             spaceToGo -= delet_dis['size']
             del currentArchives[delet_dis['archiveid']]
         else :
-            print(f'WARN : pruneArchive failed for {delet_dis["archiveid"]}')
+            BackupSupport.warnPrint(f'pruneArchive failed for {delet_dis["archiveid"]}')
 
     #Update the inventoryCache based on what's left
     inventoryCache['vaultContents'] = list(currentArchives.values())
@@ -391,7 +391,7 @@ def pruneArchive(vault_name,archive_id) :
         response = glacier.delete_archive(vaultName=vault_name,
                                           archiveId=archive_id)
     except ClientError as e:
-        print(f'WARN : glacier.delete_archive failed {e}')
+        BackupSupport.warnPrint(f'glacier.delete_archive failed {e}')
         return False
     return True
 
@@ -429,7 +429,7 @@ if __name__ == '__main__':
             BackupSupport.infoPrint(f'Pruning cleared enough space; running backup',cfg['INFOMSG'])
             inventoryCache = backupLocalFilesIfNecessary(inventoryCache)
         else :
-            print(f'WARN - Pruning Vault Space did not free up enough space. Cloud backups inhibited')
+            BackupSupport.warnPrint(f'Pruning Vault Space did not free up enough space. Cloud backups inhibited')
 
 
     saveOutstandingJobsCache(jobCache,cfg['GlacierOutstandingJobs'])
