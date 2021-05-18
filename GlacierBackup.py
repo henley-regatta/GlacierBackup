@@ -16,6 +16,7 @@ import os
 from datetime import datetime
 import tarfile
 import boto3
+import json
 from botocore.exceptions import ClientError
 import BackupSupport #This is own own library of helper functions...
 
