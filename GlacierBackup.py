@@ -20,6 +20,7 @@ import json
 from botocore.exceptions import ClientError
 import BackupSupport #This is own own library of helper functions...
 
+
 #variables that should be overridable from the command-line or some global
 #config file
 optionsOverrideFile = "~/.glacierclient/glacierbackupoptions.json"
@@ -40,35 +41,35 @@ cfg = {
 }
 
 ###############################################################################
-def loadLastActualInventory(invfile) :
+def loadLastActualInventory(invfile, logger) :
     """ Load the last saved actual inventory file from disk if present """
     invActualPath = os.path.expanduser(invfile)
-    actualInvData = BackupSupport.loadParseJSONFile(invActualPath,cfg['INFOMSG'])
+    actualInvData = BackupSupport.loadParseJSONFile(invActualPath,logger)
     if actualInvData is not None :
         return actualInvData
     else :
-        BackupSupport.infoPrint('Will use dummy Actual Inventory data', cfg['INFOMSG'])
+        logger.infoPrint('Will use dummy Actual Inventory data')
         return {
             "InventoryDate" : 0,
             "ArchiveList": []
         }
 
 ###############################################################################
-def saveLastActualInventory(actualInventory, invfile) :
+def saveLastActualInventory(actualInventory, invfile, logger) :
     """Save an actual AWS Vault Inventory to local file"""
     locInvFile = os.path.expanduser(invfile)
-    BackupSupport.saveDataAsJSONFile(actualInventory,locInvFile)
+    BackupSupport.saveDataAsJSONFile(actualInventory,locInvFile, logger)
 
 ###############################################################################
-def loadInventoryCache(invcachefile) :
+def loadInventoryCache(invcachefile,logger) :
     """ Load the locally-maintained inventory cache file from disk if present,
         otherwise initialise as empty """
     cacheActualPath = os.path.expanduser(invcachefile)
-    invCache = BackupSupport.loadParseJSONFile(cacheActualPath,cfg['INFOMSG'])
+    invCache = BackupSupport.loadParseJSONFile(cacheActualPath,logger)
     if invCache is not None :
         return invCache
     else :
-        BackupSupport.infoPrint(f'Using Defaults for Inventory Cache',cfg['INFOMSG'])
+        logger.infoPrint(f'Using Defaults for Inventory Cache')
         return {
             "vaultName" : cfg['GlacierVault'],
             "vaultMaxSize" : cfg['VaultSizeLimit'],
@@ -76,31 +77,31 @@ def loadInventoryCache(invcachefile) :
         }
 
 ###############################################################################
-def saveLocalInventoryCache(inventorycache,invcachefile):
+def saveLocalInventoryCache(inventorycache,invcachefile,logger):
     """ Save our cached Inventory data to local file """
     actualcachefile = os.path.expanduser(invcachefile)
-    BackupSupport.saveDataAsJSONFile(inventorycache,actualcachefile)
+    BackupSupport.saveDataAsJSONFile(inventorycache,actualcachefile,logger)
 
 ###############################################################################
-def loadOutstandingJobsCache(jobcachefile) :
+def loadOutstandingJobsCache(jobcachefile,logger) :
     """ Load the cache of jobs we know are outstanding, initialise to blank if
         empty """
     cacheActualPath = os.path.expanduser(jobcachefile)
-    jobCache = BackupSupport.loadParseJSONFile(cacheActualPath,cfg['INFOMSG'])
+    jobCache = BackupSupport.loadParseJSONFile(cacheActualPath,logger)
     if jobCache is not None :
         return jobCache
     else :
-        BackupSupport.infoPrint(f'Assuming empty Job Cache',cfg['INFOMSG'])
+        logger.infoPrint(f'Assuming empty Job Cache')
         return []
 
 ###############################################################################
-def saveOutstandingJobsCache(jobsCache, jobcachefile) :
+def saveOutstandingJobsCache(jobsCache, jobcachefile, logger) :
     """Save the cache of outstanding AWS jobs to local file"""
     actualcachefile = os.path.expanduser(jobcachefile)
-    BackupSupport.saveDataAsJSONFile(jobsCache,actualcachefile)
+    BackupSupport.saveDataAsJSONFile(jobsCache,actualcachefile, logger)
 
 ###############################################################################
-def checkOutstandingJobsAndUpdateInventoryIfNeeded(jobCache, inventoryCache, localInventoryFile) :
+def checkOutstandingJobsAndUpdateInventoryIfNeeded(jobCache, inventoryCache, localInventoryFile, logger) :
     """ Go to Amazon and check the status of outstanding jobs (from the cache).
     If any of them have completed, retrieve the results. Update the cache
     with any changes """
@@ -111,18 +112,18 @@ def checkOutstandingJobsAndUpdateInventoryIfNeeded(jobCache, inventoryCache, loc
         try:
             response = glacier.describe_job(vaultName=cJob['vaultID'], jobId=cJob['jobId'])
         except ClientError as e:
-            BackupSupport.warnPrint(f'Could not retrieve job status for {cJob["jobId"]}, error was {e}')
+            logger.warnPrint(f'Could not retrieve job status for {cJob["jobId"]}, error was {e}')
             newJobCache.append(cJob)
         jType = response["Action"]
         jStatus = response["StatusCode"]
-        BackupSupport.infoPrint(f'Outstanding Job {cJob["jobId"]} of type {jType} is currently in state {jStatus}',cfg['INFOMSG'])
+        logger.infoPrint(f'Outstanding Job {cJob["jobId"]} of type {jType} is currently in state {jStatus}')
         if jStatus == "Succeeded" :
-            newInventory = retrieveInventoryResults(cJob["jobId"], cJob["vaultID"], localInventoryFile)
-            BackupSupport.debugPrint(f'retrieved inventory: {newInventory}', cfg['DEBUGME'])
-            newInventoryCache = reconcileInventory(inventoryCache, newInventory)
-            BackupSupport.debugPrint(f'Updated local inventory cache to: {newInventoryCache}', cfg['DEBUGME'])
+            newInventory = retrieveInventoryResults(cJob["jobId"], cJob["vaultID"], localInventoryFile, logger)
+            logger.debugPrint(f'retrieved inventory: {newInventory}')
+            newInventoryCache = reconcileInventory(inventoryCache, newInventory, logger)
+            logger.debugPrint(f'Updated local inventory cache to: {newInventoryCache}')
         elif jStatus == "Failed" :
-            BackupSupport.warnPrint(f'Inventory Retrieve job {cJob["jobId"]} FAILED - {response}')
+            logger.warnPrint(f'Inventory Retrieve job {cJob["jobId"]} FAILED - {response}')
         else :
             #Job is still running...
             newJobCache.append(cJob)
@@ -130,7 +131,7 @@ def checkOutstandingJobsAndUpdateInventoryIfNeeded(jobCache, inventoryCache, loc
     return newJobCache, newInventoryCache
 
 ###############################################################################
-def retrieveInventoryResults(completedJobID, vaultID, localInvFile) :
+def retrieveInventoryResults(completedJobID, vaultID, localInvFile, logger) :
     """ For an Inventory-retrieve job that we know has completed, go unto
         Amazon and get the results, storing in the file listed """
 
@@ -139,15 +140,15 @@ def retrieveInventoryResults(completedJobID, vaultID, localInvFile) :
         response = glacier.get_job_output(vaultName=vaultID, jobId=completedJobID)
         respBody = json.loads(response['body'].read())
     except ClientError as e:
-        BackupSupport.errorPrint(f'Unable to retrieve job output for completed job {completedJobID}')
-        BackupSupport.errorPrint(f'glacier.get_job_output() returned {e}')
+        logger.errorPrint(f'Unable to retrieve job output for completed job {completedJobID}')
+        logger.errorPrint(f'glacier.get_job_output() returned {e}')
         exit(2)
 
     saveLastActualInventory(respBody, localInvFile)
     return respBody
 
 ###############################################################################
-def requestNewInventoryFromAmazon(vaultToInventory) :
+def requestNewInventoryFromAmazon(vaultToInventory, logger) :
     """ Request a new Inventory of the specified Vault from Amazon. Note that
     this is a (literally) expensive operation - many requests cost actual money
     so take care to call this as sparingly as possible. OK I exaggerate but
@@ -162,7 +163,7 @@ def requestNewInventoryFromAmazon(vaultToInventory) :
         response = glacier.initiate_job(vaultName=vaultToInventory,
                                         jobParameters=job_parms)
     except ClientError as e:
-        BackupSupport.errorPrint(f'Unable to request new Inventory for {vaultToInventory} - {e}')
+        logger.errorPrint(f'Unable to request new Inventory for {vaultToInventory} - {e}')
         exit(2)
 
     return response["jobId"], vaultToInventory
@@ -239,7 +240,7 @@ def createArchiveFileList(directoryToArchive) :
     return filesToArchive
 
 ###############################################################################
-def createAndEncryptArchiveBlob(filesToArchive, directoryToUse, encryptionKey) :
+def createAndEncryptArchiveBlob(filesToArchive, directoryToUse, encryptionKey, logger) :
     """ Final step prior to uploading a new Archive to Glacier is to coalesce
     all the candidate files into a single archive and encrypt it against the
     local encryption key """
@@ -264,41 +265,41 @@ def createAndEncryptArchiveBlob(filesToArchive, directoryToUse, encryptionKey) :
     return finalArchive
 
 ###############################################################################
-def uploadArchiveFileToGlacier(archiveToUpload) :
+def uploadArchiveFileToGlacier(archiveToUpload, logger) :
     """ The actual core of the script. Upload an Archive to an AWS S3 Vault """
 
     #nb: Glacier works on byte-strings so we need to actually stream the file:
     try:
         object_data = open(archiveToUpload,"rb")
     except Exception as e :
-        BackupSupport.errorPrint(f'ERROR - Unable to open {archiveToUpload} for transmission to Glacier: {e}')
+        logger.errorPrint(f'ERROR - Unable to open {archiveToUpload} for transmission to Glacier: {e}')
         exit(1)
 
-    BackupSupport.infoPrint(f'Uploading archive {archiveToUpload} to Glacier',cfg['INFOMSG'])
+    logger.infoPrint(f'Uploading archive {archiveToUpload} to Glacier')
     glacier = boto3.client('glacier')
     try:
         archive = glacier.upload_archive(vaultName=cfg["GlacierVault"],
                                          archiveDescription=archiveToUpload,
                                          body=object_data)
     except ClientError as e :
-        BackupSupport.errorPrint(f'Upload of {archiveToUpload} to Glacier failed: {e}')
+        logger.errorPrint(f'Upload of {archiveToUpload} to Glacier failed: {e}')
         exit(2)
     finally :
         object_data.close()
 
-    BackupSupport.infoPrint(f'Archive upload complete with ID = {archive["archiveId"]}',cfg['INFOMSG'])
+    logger.infoPrint(f'Archive upload complete with ID = {archive["archiveId"]}')
     return archive["archiveId"]
 
 ###############################################################################
-def backupLocalFilesIfNecessary(inventoryCache) :
+def backupLocalFilesIfNecessary(inventoryCache,logger) :
     """Wrapper function for the main purpose of this script: Determine whether,
     what and how to backup any configured local files """
 
     markerFile=os.path.expanduser(os.path.join(cfg['backupArchiveLocalPath'], cfg['backupCloudReadyFlagFile']))
     if os.path.exists(markerFile) :
-        BackupSupport.infoPrint(f'Local Backup system indicates a complete set ready for backup, proceeding:',cfg['INFOMSG'])
+        logger.infoPrint(f'Local Backup system indicates a complete set ready for backup, proceeding:')
     else :
-        BackupSupport.infoPrint(f'No marker file found. Nothing to send to the cloud',cfg['INFOMSG'])
+        logger.infoPrint(f'No marker file found. Nothing to send to the cloud')
         return inventoryCache
 
     #Determine what files should be in the archive blob to upload:
@@ -307,9 +308,10 @@ def backupLocalFilesIfNecessary(inventoryCache) :
     #Create the Blob to upload:
     archiveToUpload = createAndEncryptArchiveBlob(fileListToAddToBackup,
                                                   cfg['backupArchiveLocalPath'],
-                                                  cfg['localEncryptionKey'])
+                                                  cfg['localEncryptionKey'],
+                                                  logger)
     #Actually do the actual upload:
-    uploadedArchiveID = uploadArchiveFileToGlacier(archiveToUpload)
+    uploadedArchiveID = uploadArchiveFileToGlacier(archiveToUpload, logger)
 
     #archive is an object with data we need to insert into the inventoryCache
     #but not all of the data is there - we need to get some from the OS:
@@ -332,7 +334,7 @@ def backupLocalFilesIfNecessary(inventoryCache) :
     return inventoryCache
 
 ###############################################################################
-def pruneVaultToSpecifiedFreeSpace(inventoryCache, requiredExtraSpace) :
+def pruneVaultToSpecifiedFreeSpace(inventoryCache, requiredExtraSpace, logger) :
     """ Attempt to prune the Vault to free up space to enable next backup to be
         taken. Uses aging as well as size heuristics """
     minAge = cfg['VaultArchiveMinRetentionDays'] * 86400
@@ -347,10 +349,9 @@ def pruneVaultToSpecifiedFreeSpace(inventoryCache, requiredExtraSpace) :
     # Look through the inventory for all archives OLDER than the age threshold:
     for (aid, arc) in currentArchives.items() :
         arcAge = now - arc['uploadTime']
-        BackupSupport.debugPrint(f'PRUNING: {arc["description"]} is {arcAge/86400} days old',cfg['DEBUGME'])
+        logger.debugPrint(f'PRUNING: {arc["description"]} is {arcAge/86400} days old')
         if arcAge > minAge :
-            BackupSupport.debugPrint(f'PRUNING {arc["description"]} can be pruned',cfg['DEBUGME'])
-            candidateArchives[arcAge] = arc
+            logger.debugPrint(f'PRUNING {arc["description"]} can be pruned')
 
     #Now thin this out to the OLDEST archives that SUM to match the required space:
     pruneArchives=[]
@@ -362,19 +363,19 @@ def pruneVaultToSpecifiedFreeSpace(inventoryCache, requiredExtraSpace) :
         else :
             pruneSpace += candidateArchives[d]['size']
             pruneArchives.append(candidateArchives[d])
-    BackupSupport.debugPrint(f'PRUNING: Will Prune {pruneArchives} to free up {pruneSpace} bytes',cfg['DEBUGME'])
+    logger.debugPrint(f'PRUNING: Will Prune {pruneArchives} to free up {pruneSpace} bytes')
 
     #Go through and run the deletions on them:
     spaceToGo = requiredExtraSpace
     for delet_dis in pruneArchives :
-        BackupSupport.infoPrint(f'PRUNING: Deleting {delet_dis["archiveid"]} to free {delet_dis["size"]}',cfg['INFOMSG'])
-        isGone = pruneArchive(cfg['GlacierVault'], delet_dis['archiveid'])
+        logger.infoPrint(f'PRUNING: Deleting {delet_dis["archiveid"]} to free {delet_dis["size"]}')
+        isGone = pruneArchive(cfg['GlacierVault'], delet_dis['archiveid'],logger)
         if isGone :
             #Remove the archive from the inventory,
             spaceToGo -= delet_dis['size']
             del currentArchives[delet_dis['archiveid']]
         else :
-            BackupSupport.warnPrint(f'pruneArchive failed for {delet_dis["archiveid"]}')
+            logger.warnPrint(f'pruneArchive failed for {delet_dis["archiveid"]}')
 
     #Update the inventoryCache based on what's left
     inventoryCache['vaultContents'] = list(currentArchives.values())
@@ -383,7 +384,7 @@ def pruneVaultToSpecifiedFreeSpace(inventoryCache, requiredExtraSpace) :
 
 
 ###############################################################################
-def pruneArchive(vault_name,archive_id) :
+def pruneArchive(vault_name,archive_id,logger) :
     """ Issue request to AWS to actually delete an archive. Operation is
     synchronous so return value can be used to evaluate success/failure """
 
@@ -392,7 +393,7 @@ def pruneArchive(vault_name,archive_id) :
         response = glacier.delete_archive(vaultName=vault_name,
                                           archiveId=archive_id)
     except ClientError as e:
-        BackupSupport.warnPrint(f'glacier.delete_archive failed {e}')
+        logger.warnPrint(f'glacier.delete_archive failed {e}')
         return False
     return True
 
@@ -400,17 +401,25 @@ def pruneArchive(vault_name,archive_id) :
 ###############################################################################
 ###############################################################################
 if __name__ == '__main__':
-    cfg = BackupSupport.loadOptions(cfg, optionsOverrideFile, cfg['INFOMSG'])
-    inventoryCache = loadInventoryCache(cfg['VaultInventoryCacheFile'])
-    jobCache = loadOutstandingJobsCache(cfg['GlacierOutstandingJobs'])
-    jobCache, inventoryCache = checkOutstandingJobsAndUpdateInventoryIfNeeded(jobCache, inventoryCache, cfg['VaultInventoryFile'])
+    #Initialise logging support
+    logger = BackupSupport.BSLogHelper('GlacierBackup',cfg['DEBUGME'],cfg['INFOMSG'])
+
+    #Load options from backup file
+    cfg = BackupSupport.loadOptions(cfg, optionsOverrideFile, logger)
+
+    #Re-set log level based on changed config
+    logger.setLogLevel(cfg['DEBUGME'], cfg['INFOMSG'])
+
+    inventoryCache = loadInventoryCache(cfg['VaultInventoryCacheFile'],logger)
+    jobCache = loadOutstandingJobsCache(cfg['GlacierOutstandingJobs'],logger)
+    jobCache, inventoryCache = checkOutstandingJobsAndUpdateInventoryIfNeeded(jobCache, inventoryCache, cfg['VaultInventoryFile'],logger)
 
     #We should request a new Inventory from Amazon if certain conditions apply:
     timeSinceLastInventory = int(datetime.now().timestamp()) - inventoryCache["lastActualInventoryTime"]
-    BackupSupport.infoPrint(f'It has been {timeSinceLastInventory} seconds since the last Amazon inventory was taken',cfg['INFOMSG'])
+    logger.infoPrint(f'It has been {timeSinceLastInventory} seconds since the last Amazon inventory was taken')
     if len(jobCache) == 0 and timeSinceLastInventory >= cfg['VaultInventoryRequestWindow'] :
-        BackupSupport.infoPrint(f'Amazon inventory probably stale; requesting a new one',cfg['INFOMSG'])
-        jobId,vaultID = requestNewInventoryFromAmazon(cfg['GlacierVault'])
+        logger.infoPrint(f'Amazon inventory probably stale; requesting a new one')
+        jobId,vaultID = requestNewInventoryFromAmazon(cfg['GlacierVault'],logger)
         jobCache.append({ "vaultID" : vaultID, "jobId" : jobId })
 
     #Determine whether we've got space available in the Vault for the next backup,
@@ -418,20 +427,19 @@ if __name__ == '__main__':
     inventoryCache['vaultEstimatedTotalSize'] = calculateVaultSize(inventoryCache)
     inventoryCache['vaultEstimatedSpaceRemaining'] = cfg['VaultSizeLimit'] - inventoryCache['vaultEstimatedTotalSize']
     inventoryCache['nextArchiveEstimatedSize'] = estimateNextBackupSize(inventoryCache)
-    BackupSupport.infoPrint(f'Vault remaining capacity: {inventoryCache["vaultEstimatedSpaceRemaining"]}',cfg['INFOMSG'])
+    logger.infoPrint(f'Vault remaining capacity: {inventoryCache["vaultEstimatedSpaceRemaining"]}')
     if inventoryCache['nextArchiveEstimatedSize'] < inventoryCache['vaultEstimatedSpaceRemaining'] :
-        BackupSupport.infoPrint(f'Vault has sufficient capacity for next estimated backup size ({inventoryCache["nextArchiveEstimatedSize"]}); no pruning required',cfg['INFOMSG'])
-        inventoryCache = backupLocalFilesIfNecessary(inventoryCache)
+        logger.infoPrint(f'Vault has sufficient capacity for next estimated backup size ({inventoryCache["nextArchiveEstimatedSize"]}); no pruning required')
+        inventoryCache = backupLocalFilesIfNecessary(inventoryCache, logger)
     else :
         requiredSpaceToPrune = inventoryCache['nextArchiveEstimatedSize'] - inventoryCache['vaultEstimatedSpaceRemaining']
-        BackupSupport.infoPrint(f'Insufficient space for another backup; need {requiredSpaceToPrune} bytes. Pruning...',cfg['INFOMSG'])
-        inventoryCache, freedUpEnoughSpace = pruneVaultToSpecifiedFreeSpace(inventoryCache, requiredSpaceToPrune)
+        logger.infoPrint(f'Insufficient space for another backup; need {requiredSpaceToPrune} bytes. Pruning...')
+        inventoryCache, freedUpEnoughSpace = pruneVaultToSpecifiedFreeSpace(inventoryCache, requiredSpaceToPrune, logger)
         if freedUpEnoughSpace :
-            BackupSupport.infoPrint(f'Pruning cleared enough space; running backup',cfg['INFOMSG'])
-            inventoryCache = backupLocalFilesIfNecessary(inventoryCache)
+            logger.infoPrint(f'Pruning cleared enough space; running backup')
+            inventoryCache = backupLocalFilesIfNecessary(inventoryCache, logger)
         else :
-            BackupSupport.warnPrint(f'Pruning Vault Space did not free up enough space. Cloud backups inhibited')
+            logger.warnPrint(f'Pruning Vault Space did not free up enough space. Cloud backups inhibited')
 
-
-    saveOutstandingJobsCache(jobCache,cfg['GlacierOutstandingJobs'])
-    saveLocalInventoryCache(inventoryCache,cfg['VaultInventoryCacheFile'])
+    saveOutstandingJobsCache(jobCache,cfg['GlacierOutstandingJobs'],logger)
+    saveLocalInventoryCache(inventoryCache,cfg['VaultInventoryCacheFile'],logger)

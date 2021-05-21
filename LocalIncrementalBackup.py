@@ -39,39 +39,39 @@ forbiddenFileExtensions = []
 excludeList = set()
 
 ###############################################################################
-def getFileSpecs(fileSpec) :
+def getFileSpecs(fileSpec, logger) :
     """ Load the include / exclude specifications from external JSON, with a
     certain amount of error handling """
     incexcspecactualpath = os.path.expanduser(fileSpec)
-    fspecs = BackupSupport.loadParseJSONFile(incexcspecactualpath,cfg['INFOMSG'])
+    fspecs = BackupSupport.loadParseJSONFile(incexcspecactualpath,logger)
     if fspecs is not None :
         return fspecs
     else :
         #Can't go on without a file specification to load, abort
-        BackupSupport.errorPrint(f'Cannot proceed without a file specification to backup')
+        logger.errorPrint(f'Cannot proceed without a file specification to backup')
         exit(1)
 
 ###############################################################################
-def loadPreviousBackupData(fileSpec) :
+def loadPreviousBackupData(fileSpec, logger) :
     """ Load the stored previous backup state, if available """
     prevStateactualPath = os.path.expanduser(fileSpec)
-    prevState = BackupSupport.loadParseJSONFile(prevStateactualPath,cfg['INFOMSG'])
+    prevState = BackupSupport.loadParseJSONFile(prevStateactualPath,logger)
     if prevState is not None :
         return prevState
     else :
-        BackupSupport.infoPrint('Using blank previous backup state',cfg['INFOMSG'])
+        logger.infoPrint('Using blank previous backup state')
         return { 'metadata' : {'lastBackupTS': 0 }}
 
 ###############################################################################
-def writeNewBackupData(fileSpec, newMetaData, newFileHashList) :
+def writeNewBackupData(fileSpec, newMetaData, newFileHashList, logger) :
     """ Write the state of what files we know about to local file for next time """
     oldStateActualPath = os.path.expanduser(fileSpec)
     backupData = {"metadata" : newMetaData, "filelist" : newFileHashList}
-    BackupSupport.saveDataAsJSONFile(backupData,oldStateActualPath)
+    BackupSupport.saveDataAsJSONFile(backupData,oldStateActualPath, logger)
 
 ###############################################################################
 #Optimisations used by the individual file parser for exceptions below:
-def prepareExclusionLists(exclusions) :
+def prepareExclusionLists(exclusions, logger) :
     """ Build the global forbiddenFileExtensions list """
     global excludeList
     global forbiddenFileExtensions
@@ -83,8 +83,8 @@ def prepareExclusionLists(exclusions) :
             exDirs.append(exCand)
     # Similar but used by the directory walker to exclude matching directories:
     excludeList = set(exDirs)
-    BackupSupport.infoPrint(f'excluding files with extensions {forbiddenFileExtensions}',cfg['INFOMSG'])
-    BackupSupport.infoPrint(f'excluding directory trees from: {excludeList}',cfg['INFOMSG'])
+    logger.infoPrint(f'excluding files with extensions {forbiddenFileExtensions}')
+    logger.infoPrint(f'excluding directory trees from: {excludeList}')
 
 ###############################################################################
 def matchFileExtension(filename) :
@@ -97,7 +97,7 @@ def matchFileExtension(filename) :
     return False
 
 ###############################################################################
-def getFileHash(fqfilename)  :
+def getFileHash(fqfilename, logger) :
     """Returns the secure hash of a passed filename if it can be read, 0 if not """
     hash_blake2b = hashlib.blake2b()
     try:
@@ -106,24 +106,24 @@ def getFileHash(fqfilename)  :
                 hash_blake2b.update(chunk)
         return hash_blake2b.hexdigest()
     except Exception as e:
-        BackupSupport.warnPrint(f'Error generating hash for {fqfilename}: {e}')
+        logger.warnPrint(f'Error generating hash for {fqfilename}: {e}')
         return 0
 
 ###############################################################################
-def buildCurrentFileHashes(pathsToCheck) :
+def buildCurrentFileHashes(pathsToCheck, logger) :
     """ Iterate down over every requested file spec and build the list of matching, valid
     files with their hashes into the current hashes list """
     allFileHashes = {}
     for filespec in pathsToCheck :
-        BackupSupport.infoPrint(f'Scanning spec: {filespec}',cfg['INFOMSG'])
+        logger.infoPrint(f'Scanning spec: {filespec}')
         for path, dirs, files in os.walk(filespec, topdown=True) :
             #Map out any dirs matching the excludes list
             dirs[:] = [d for d in dirs if d not in excludeList]
-            BackupSupport.debugPrint(f'Scanning path: {path}',cfg['DEBUGME'])
+            logger.debugPrint(f'Scanning path: {path}')
             for fname in files:
                 if not matchFileExtension(fname) :
                     fqname = os.path.join(path, fname)
-                    allFileHashes[fqname] = getFileHash(fqname)
+                    allFileHashes[fqname] = getFileHash(fqname,logger)
     return allFileHashes
 
 ###############################################################################
@@ -169,7 +169,7 @@ def buildfileListToBackup(current,previous) :
     return backupFileList
 
 ###############################################################################
-def generateNewMetadata(previousMetaData) :
+def generateNewMetadata(previousMetaData, logger) :
     """Generate updated metadata to store based on the current set of files and
     the history available"""
     cBackupTS = datetime.now().strftime("%Y%m%d%H%M%S")
@@ -183,16 +183,16 @@ def generateNewMetadata(previousMetaData) :
         try:
             with open(cloudBackupReadyFlagFile, "w") as ff:
                 ff.write(cBackupTS)
-            BackupSupport.infoPrint(f'Since this was the last incremental backup, wrote flag-file {cloudBackupReadyFlagFile} to signal ready for cloud Backup')
+            logger.infoPrint(f'Since this was the last incremental backup, wrote flag-file {cloudBackupReadyFlagFile} to signal ready for cloud Backup')
         except Exception as e:
-            BackupSupport.warnPrint(f'Unable to create flag file for cloud backup as {cloudBackupReadyFlagFile}, error {e}')
+            logger.warnPrint(f'Unable to create flag file for cloud backup as {cloudBackupReadyFlagFile}, error {e}')
     if "OverrideTakeFullBackup" in cfg or "numIncrementals" not in previousMetaData or previousMetaData["numIncrementals"] > cfg['maxIncrementsBetweenFullBackups'] :
         cIncrementals = 0
         cArchiveName = cBackupTS + "_full"
 
     else :
         cIncrementals = previousMetaData["numIncrementals"] + 1
-        BackupSupport.infoPrint(f'This will be an Incremental backup {cIncrementals} of {cfg["maxIncrementsBetweenFullBackups"]}',cfg['INFOMSG'])
+        logger.infoPrint(f'This will be an Incremental backup {cIncrementals} of {cfg["maxIncrementsBetweenFullBackups"]}')
         cArchiveName = cBackupTS + "_incr_from_" + previousMetaData["lastBackupTS"]
 
     #Build and return the new metadata struct:
@@ -211,30 +211,40 @@ def createLocalArchive(filename, filelist):
     return archiveFile
 
 ###############################################################################
-def runLocalBackup(cfg) :
+def runLocalBackup(cfg,logger) :
     """A wrapper for Part One of the requirement - create a local backup archive.
       There's nothing to stop you using this stand-alone as the result is a chain
       of local archive files in the specified tmp dir consisting of sets of full
       followed by incremental backup files"""
 
-    fspecs = getFileSpecs(cfg['includeexcludefilespec'])
-    prepareExclusionLists(fspecs['excludes'])
-    currentFileHashes = buildCurrentFileHashes(fspecs['includes'])
-    previousBackupData = loadPreviousBackupData(cfg['previousFileStateStore'])
+    fspecs = getFileSpecs(cfg['includeexcludefilespec'], logger)
+    prepareExclusionLists(fspecs['excludes'], logger)
+    currentFileHashes = buildCurrentFileHashes(fspecs['includes'], logger)
+    previousBackupData = loadPreviousBackupData(cfg['previousFileStateStore'], logger)
     thisBackupFileList = buildfileListToBackup(currentFileHashes,previousBackupData)
-    BackupSupport.infoPrint(f'Current backup set contains {len(thisBackupFileList)} files out of {len(currentFileHashes.keys())} found by scan',cfg['INFOMSG'])
-    currentMetaData = generateNewMetadata(previousBackupData["metadata"])
+    logger.infoPrint(f'Current backup set contains {len(thisBackupFileList)} files out of {len(currentFileHashes.keys())} found by scan')
+    currentMetaData = generateNewMetadata(previousBackupData["metadata"], logger)
     localBackupFile = os.path.join(cfg['backupArchiveLocalPath'],currentMetaData["archiveName"])
     backupFileName = createLocalArchive(localBackupFile,thisBackupFileList)
     if "localEncryptionKey" in cfg and len(cfg['localEncryptionKey'])>0 :
-        backupFileName = BackupSupport.encryptLocalFile(backupFileName,cfg['localEncryptionKey'],cfg['opensslbinary'])
-    BackupSupport.infoPrint(f'Created local archive file in {backupFileName}',cfg['INFOMSG'])
-    writeNewBackupData(cfg['previousFileStateStore'], currentMetaData, currentFileHashes)
+        backupFileName = BackupSupport.encryptLocalFile(backupFileName,cfg['localEncryptionKey'],cfg['opensslbinary'], logger)
+    logger.infoPrint(f'Created local archive file in {backupFileName}')
+    writeNewBackupData(cfg['previousFileStateStore'], currentMetaData, currentFileHashes, logger)
     return backupFileName
 
 ###############################################################################
 ###############################################################################
 ###############################################################################
 if __name__ == '__main__':
-    cfg = BackupSupport.loadOptions(cfg, optionsOverrideFile, cfg['INFOMSG'])
-    localBackupFile = runLocalBackup(cfg)
+
+    #Initialise logging support
+    logger = BackupSupport.BSLogHelper('LocalIncrementalBackup',cfg['DEBUGME'],cfg['INFOMSG'])
+
+    #Load / override options from file
+    cfg = BackupSupport.loadOptions(cfg, optionsOverrideFile, logger)
+
+    #Re-set log level based on changed config
+    logger.setLogLevel(cfg['DEBUGME'], cfg['INFOMSG'])
+
+    #And run the backup
+    localBackupFile = runLocalBackup(cfg,logger)

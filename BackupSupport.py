@@ -12,45 +12,55 @@ import json
 import os
 from datetime import datetime
 import subprocess
+# 2021-05-21 - better logging
+import logging
+
+modlogger = logging.getLogger('GlacierBackup.Support')
+class BSLogHelper:
+
+    def __init__(self,loggerName,logDebug,logInfo):
+        self.logger = logging.getLogger(loggerName)
+        formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+        ch = logging.StreamHandler()
+        ch.setFormatter(formatter)
+        self.logger.addHandler(ch)
+
+        self.setLogLevel(logDebug,logInfo)
+        self.logger.debug(f'Logging Initialised' )
+
+    def setLogLevel(self,logDebug,logInfo) :
+        if logDebug:
+            self.logger.setLevel(logging.DEBUG)
+        elif logInfo:
+            self.logger.setLevel(logging.INFO)
+        else:
+            self.logger.setLevel(logging.WARN)
+        self.logger.info(f'Log levels now: DEBUG={logDebug}, INFO={logInfo}')
+
+    def debugPrint(self,msg) :
+        self.logger.debug(f'{msg}')
+
+    def infoPrint(self,msg) :
+        self.logger.info(f'{msg}')
+
+    def warnPrint(self,msg) :
+        self.logger.warn(f'{msg}')
+
+    def errorPrint(self,msg) :
+        self.logger.error(f'{msg}')
 
 ###############################################################################
-def tsStr() :
-    return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-
-###############################################################################
-def debugPrint(msg,doPrint) :
-    """Print a formatted DEBUG message if enabled"""
-    if doPrint :
-        print(f'{tsStr()} DEBUG {msg}')
-
-###############################################################################
-def infoPrint(msg,doPrint) :
-    """Print a formatted INFO message if enabled"""
-    if doPrint :
-        print(f'{tsStr()} INFO {msg}')
-
-###############################################################################
-def warnPrint(msg) :
-    """(always) print a formatted warning message"""
-    print(f'{tsStr()} WARN {msg}')
-
-###############################################################################
-def errorPrint(msg) :
-    """(always) print a formatted error message"""
-    print(f'{tsStr()} ERROR {msg}')
-
-###############################################################################
-def saveDataAsJSONFile(dataStructure,path_to_json_file) :
+def saveDataAsJSONFile(dataStructure,path_to_json_file,logger) :
     """Write a data structure as JSON to a file, abort on failure"""
     try:
         with open(path_to_json_file, "w") as wf:
             json.dump(dataStructure, wf)
     except Exception as e:
-        errorPrint(f'Unable to save data to JSON file {path_to_json_file} - {e}')
+        logger.errorPrint(f'Unable to save data to JSON file {path_to_json_file} - {e}')
         exit(1)
 
 ###############################################################################
-def loadParseJSONFile(path_to_json_file,printErrors) :
+def loadParseJSONFile(path_to_json_file,logger) :
     """Load a data structure from JSON stored in an external file. Returns
        either the data structure or None if there's an error"""
     try:
@@ -58,19 +68,19 @@ def loadParseJSONFile(path_to_json_file,printErrors) :
             try:
                 readInJSON = json.loads(jf.read())
             except Exception as e:
-                warnPrint(f'Could not parse JSON from file {path_to_json_file}, {e}')
+                logger.warnPrint(f'Could not parse JSON from file {path_to_json_file}, {e}')
                 return None
     except Exception as e:
-        infoPrint(f'Could not read file {path_to_json_file}, {e}',printErrors)
+        logger.infoPrint(f'Could not read file {path_to_json_file}, {e}')
         return None
 
     return readInJSON
 
 ###############################################################################
-def loadOptions(currentCfg, optionsfile, printErrors) :
+def loadOptions(currentCfg, optionsfile, logger) :
     """Load the external options file to override hard-coded values if required"""
     actualOptionsFilePath = os.path.expanduser(optionsfile)
-    newCfg = loadParseJSONFile(actualOptionsFilePath,printErrors)
+    newCfg = loadParseJSONFile(actualOptionsFilePath,logger)
     if newCfg is not None:
         combinedCfg = {}
         for k in currentCfg.keys() :
@@ -80,11 +90,11 @@ def loadOptions(currentCfg, optionsfile, printErrors) :
                 combinedCfg[k] = currentCfg[k]
         return combinedCfg
 
-    infoPrint(f'No configuration overrides available, using default',printErrors)
+    logger.infoPrint(f'No configuration overrides available, using default')
     return currentCfg
 
 ###############################################################################
-def encryptLocalFile(filename, password, sslBinaryLocation):
+def encryptLocalFile(filename, password, sslBinaryLocation, logger):
     """Encrypt a local file using openssl with a password. Not the strongest
     or safest but better than nothing and, crucially, won't require this script
     to decrypt later, just openssl"""
@@ -95,7 +105,7 @@ def encryptLocalFile(filename, password, sslBinaryLocation):
                         '-salt', '-in', filename, '-out', encryptedFileName,
                         '-k', password], capture_output=False, shell=False)
     except Exception as e:
-        errorPrint(f'Failed to encrypt archive, returned {e}')
+        logger.errorPrint(f'Failed to encrypt archive, returned {e}')
         exit(3)
 
     #Check the archive got created OK
@@ -104,8 +114,8 @@ def encryptLocalFile(filename, password, sslBinaryLocation):
         try:
             os.remove(filename)
         except Exception as e:
-            warnPrint(f'Could not remove original archive {filename} : {e}')
+            logger.warnPrint(f'Could not remove original archive {filename} : {e}')
         return encryptedFileName
     else :
-        errorPrint(f'Encrypted file {encryptedFileName} invalid after ssl. Something Went Wrong')
+        logger.errorPrint(f'Encrypted file {encryptedFileName} invalid after ssl. Something Went Wrong')
         exit(4)
