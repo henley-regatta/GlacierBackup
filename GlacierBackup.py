@@ -120,7 +120,7 @@ def checkOutstandingJobsAndUpdateInventoryIfNeeded(jobCache, inventoryCache, loc
         if jStatus == "Succeeded" :
             newInventory = retrieveInventoryResults(cJob["jobId"], cJob["vaultID"], localInventoryFile, logger)
             logger.debugPrint(f'retrieved inventory: {newInventory}')
-            newInventoryCache = reconcileInventory(inventoryCache, newInventory, logger)
+            newInventoryCache = reconcileInventory(inventoryCache, newInventory)
             logger.debugPrint(f'Updated local inventory cache to: {newInventoryCache}')
         elif jStatus == "Failed" :
             logger.warnPrint(f'Inventory Retrieve job {cJob["jobId"]} FAILED - {response}')
@@ -144,7 +144,7 @@ def retrieveInventoryResults(completedJobID, vaultID, localInvFile, logger) :
         logger.errorPrint(f'glacier.get_job_output() returned {e}')
         exit(2)
 
-    saveLastActualInventory(respBody, localInvFile)
+    saveLastActualInventory(respBody, localInvFile,logger)
     return respBody
 
 ###############################################################################
