@@ -258,7 +258,7 @@ def createAndEncryptArchiveBlob(filesToArchive, directoryToUse, encryptionKey, l
 
     #Encrypt this file if an encryption key is set
     if len(encryptionKey)>0 :
-        finalArchive = BackupSupport.encryptLocalFile(FQArchiveFile,encryptionKey,cfg['opensslbinary'])
+        finalArchive = BackupSupport.encryptLocalFile(FQArchiveFile,encryptionKey,cfg['opensslbinary'], logger)
     else :
         finalArchive = FQArchiveFile
 
