@@ -37,6 +37,7 @@ cfg = {
     "VaultInventoryCacheFile"   : "~/.glacierclient/vault_inventory_cache.json",
     "GlacierOutstandingJobs"    : "~/.glacierclient/glacier_outstanding_jobs.json",
     "VaultInventoryRequestWindow"  : 86400*7,
+    "InventoryRequestMinInterval"  : 86400*2,
     "VaultArchiveMinRetentionDays" : 90
 }
 
@@ -73,6 +74,7 @@ def loadInventoryCache(invcachefile,logger) :
         return {
             "vaultName" : cfg['GlacierVault'],
             "vaultMaxSize" : cfg['VaultSizeLimit'],
+
             "vaultContents" : [],
         }
 
@@ -179,6 +181,7 @@ def reconcileInventory(inventoryCache, newInventory) :
         "vaultName"     : inventoryCache["vaultName"],
         "vaultMaxSize"  : inventoryCache["vaultMaxSize"],
         "lastActualInventoryTime" : int(datetime.fromisoformat(newInventory["InventoryDate"].replace('Z','+00:00')).timestamp()),
+        "lastInventoryReceivedTime" : int(datetime.now().timestamp()),
         "vaultContents" : []
     }
 
@@ -416,8 +419,13 @@ if __name__ == '__main__':
 
     #We should request a new Inventory from Amazon if certain conditions apply:
     timeSinceLastInventory = int(datetime.now().timestamp()) - inventoryCache["lastActualInventoryTime"]
+    timeSinceLastInventoryRequest = int(datetime.now().timestamp()) - inventoryCache["lastInventoryReceivedTime"]
     logger.infoPrint(f'It has been {timeSinceLastInventory} seconds since the last Amazon inventory was taken')
-    if len(jobCache) == 0 and timeSinceLastInventory >= cfg['VaultInventoryRequestWindow'] :
+    logger.infoPrint(f'and it has been {timeSinceLastInventoryRequest} seconds since we last requested one from Amazon')
+    if ( len(jobCache) == 0 and
+         timeSinceLastInventory >= cfg['VaultInventoryRequestWindow'] and
+         timeSinceLastInventoryRequest > cfg['InventoryRequestMinInterval']
+       ):
         logger.infoPrint(f'Amazon inventory probably stale; requesting a new one')
         jobId,vaultID = requestNewInventoryFromAmazon(cfg['GlacierVault'],logger)
         jobCache.append({ "vaultID" : vaultID, "jobId" : jobId })
